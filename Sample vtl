@@ -1,0 +1,18 @@
+ #set($httpResult = $ctx.identity.authorizer.httpGet("https://http-endpoint-1.com"))
+
+        #if($httpResult.status == 200)
+          #set($future1 = $ctx.identity.authorizer.httpGet("https://http-endpoint-2.com"))
+          #set($future2 = $ctx.identity.authorizer.httpGet("https://http-endpoint-3.com"))
+          #set($future3 = $ctx.identity.authorizer.httpGet("https://http-endpoint-4.com"))
+          #set($future4 = $ctx.identity.authorizer.httpGet("https://http-endpoint-5.com"))
+
+          {
+            "httpEndpoint1Result": $httpResult.body,
+            "httpEndpoint2Result": $util.toJson($future1.body),
+            "httpEndpoint3Result": $util.toJson($future2.body),
+            "httpEndpoint4Result": $util.toJson($future3.body),
+            "httpEndpoint5Result": $util.toJson($future4.body)
+          }
+        #else
+          $httpResult.body
+        #end
