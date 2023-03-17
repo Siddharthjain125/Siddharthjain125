@@ -1,0 +1,56 @@
+import AMS from 'aws-sdk';
+
+AMS.config.update({ region: "us-east-1" });
+
+const docclient = new AMS.DynamoDB.DocumentClient();
+
+let unique: any[] = [];
+
+exports.handler = function(event: any, context: any, callback: any) {
+  console.log("EventTime: ", JSON.stringify(event.time));
+
+  const params = {
+    TableName: process.env.POLICY_TABLE,
+    ProjectionExpression: "policy_id",
+    FilterExpression: '#CreatedTimeStamp BETWEEN :fromDateTime AND :toDateTime AND #ProcessedFlag-:flag',
+    ExpressionAttributeNames: {
+      'ProcessedFlag': 'event_status',
+      'acreatedTimeStamp': 'occurred_at',
+    },
+    ExpressionAttributeValues: {
+      'flag': 'CONSUMED',
+      ':fromDateTime': new Date(new Date(event.time).getTime() - (24 * 60 * 60 * 1000)).toISOString(),
+      ':toDateTime': new Date(event.time).toISOString(),
+    },
+  };
+
+  console.log("yesterday :", new Date(new Date(event.time).getTime() - (24 * 60 * 60 * 1000)).toISOString());
+
+  docclient.scan(params, onScan);
+
+  function onScan(err: any, datav: any) {
+    if (err) {
+      console.error("Unable to scan the table. Error JSON:", JSON.stringify(err, null, 2));
+    } else {
+      const array: any[] = [];
+
+      console.log("Scan succeeded.", JSON.stringify(datav));
+
+      datav.Items.forEach(function(itemdata: any) {
+        const txt = JSON.stringify(itemdata);
+        const obj = JSON.parse(txt);
+
+        unique = array.filter((item: any, i: any, ar: any) => ar.indexOf(item) === i);
+      });
+
+      var response = {
+        "IsBase64Encoded": false,
+        "statusCode": "200",
+        "headers": {},
+        "body": JSON.stringify(unique)
+      };
+
+      callback(null, response);
+    }
+  }
+};
