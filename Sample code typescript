@@ -1,56 +1,72 @@
-import AMS from 'aws-sdk';
+import AWS from 'aws-sdk';
 
-AMS.config.update({ region: "us-east-1" });
+AWS.config.update({ region: "us-east-1" });
 
-const docclient = new AMS.DynamoDB.DocumentClient();
+const docClient = new AWS.DynamoDB.DocumentClient();
 
-let unique: any[] = [];
+let unique: string[] = [];
 
-exports.handler = function(event: any, context: any, callback: any) {
+export const handler = async (event: any, context: any): Promise<any> => {
   console.log("EventTime: ", JSON.stringify(event.time));
 
   const params = {
-    TableName: process.env.POLICY_TABLE,
+    TableName: process.env.POLICY_TABLE as string,
     ProjectionExpression: "policy_id",
-    FilterExpression: '#CreatedTimeStamp BETWEEN :fromDateTime AND :toDateTime AND #ProcessedFlag-:flag',
+    FilterExpression: '#CreatedTimeStamp BETWEEN :fromDateTime AND :toDateTime AND #ProcessedFlag=:flag',
     ExpressionAttributeNames: {
       'ProcessedFlag': 'event_status',
-      'acreatedTimeStamp': 'occurred_at',
+      'CreatedTimeStamp': 'occurred_at',
     },
     ExpressionAttributeValues: {
-      'flag': 'CONSUMED',
+      ':flag': 'CONSUMED',
       ':fromDateTime': new Date(new Date(event.time).getTime() - (24 * 60 * 60 * 1000)).toISOString(),
       ':toDateTime': new Date(event.time).toISOString(),
     },
   };
-
+  
   console.log("yesterday :", new Date(new Date(event.time).getTime() - (24 * 60 * 60 * 1000)).toISOString());
 
-  docclient.scan(params, onScan);
+  await docClient.scan(params, onScan).promise();
 
-  function onScan(err: any, datav: any) {
-    if (err) {
-      console.error("Unable to scan the table. Error JSON:", JSON.stringify(err, null, 2));
-    } else {
-      const array: any[] = [];
+  const response = {
+    isBase64Encoded: false,
+    statusCode: 200,
+    headers: {},
+    body: JSON.stringify(unique),
+  };
+  
+  return response;
+};
 
-      console.log("Scan succeeded.", JSON.stringify(datav));
-
-      datav.Items.forEach(function(itemdata: any) {
-        const txt = JSON.stringify(itemdata);
-        const obj = JSON.parse(txt);
-
-        unique = array.filter((item: any, i: any, ar: any) => ar.indexOf(item) === i);
-      });
-
-      var response = {
-        "IsBase64Encoded": false,
-        "statusCode": "200",
-        "headers": {},
-        "body": JSON.stringify(unique)
+function onScan(err: any, data: any): void {
+  if (err) {
+    console.error("Unable to scan the table. Error JSON:", JSON.stringify(err, null, 2));
+  } else {
+    console.log("Scan succeeded.", JSON.stringify(data));
+    data.Items.forEach(function(itemdata: any) {
+      const txt = JSON.stringify(itemdata);
+      const obj = JSON.parse(txt);
+      unique = unique.filter((item, i, ar) => ar.indexOf(item) === i);
+      unique.push(obj.policy_id);
+    });
+    if (typeof data.LastEvaluatedKey !== "undefined") {
+      console.log("Scanning for more...");
+      const params = {
+        TableName: process.env.POLICY_TABLE as string,
+        ProjectionExpression: "policy_id",
+        FilterExpression: '#CreatedTimeStamp BETWEEN :fromDateTime AND :toDateTime AND #ProcessedFlag=:flag',
+        ExpressionAttributeNames: {
+          'ProcessedFlag': 'event_status',
+          'CreatedTimeStamp': 'occurred_at',
+        },
+        ExpressionAttributeValues: {
+          ':flag': 'CONSUMED',
+          ':fromDateTime': new Date(new Date(event.time).getTime() - (24 * 60 * 60 * 1000)).toISOString(),
+          ':toDateTime': new Date(event.time).toISOString(),
+        },
+        ExclusiveStartKey: data.LastEvaluatedKey,
       };
-
-      callback(null, response);
+      docClient.scan(params, onScan);
     }
   }
-};
+}
