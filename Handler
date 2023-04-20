@@ -1,0 +1,77 @@
+import { DynamoDB } from 'aws-sdk';
+import { Context } from 'aws-lambda';
+
+const dynamoClient = new DynamoDB.DocumentClient();
+
+interface PolicyUpdateEvent {
+  policyNumber: string;
+  timestamp: number;
+}
+
+export async function handler(event: PolicyUpdateEvent, context: Context) {
+  console.log(`Received policy update event: ${JSON.stringify(event)}`);
+
+  const timestamp = event.timestamp;
+  const policyNumber = event.policyNumber;
+
+  // Query the DynamoDB table for the item with the specified policy number
+  const queryResult = await dynamoClient
+    .get({
+      TableName: 'PolicyTable',
+      Key: {
+        policyNumber: policyNumber,
+      },
+    })
+    .promise();
+
+  // If an item is found, update the timestamp if the status is "received"
+  if (queryResult.Item && queryResult.Item.status === 'received') {
+    const updateParams: DynamoDB.DocumentClient.UpdateItemInput = {
+      TableName: 'PolicyTable',
+      Key: {
+        policyNumber: policyNumber,
+      },
+      UpdateExpression: 'SET #timestamp = :newTimestamp',
+      ExpressionAttributeNames: {
+        '#timestamp': 'timestamp',
+      },
+      ExpressionAttributeValues: {
+        ':newTimestamp': timestamp,
+      },
+      ConditionExpression: '#status = :status',
+      ExpressionAttributeNames: {
+        '#status': 'status',
+      },
+      ExpressionAttributeValues: {
+        ':status': 'received',
+      },
+    };
+    try {
+      await dynamoClient.update(updateParams).promise();
+    } catch (error) {
+      console.log(`Error updating item ${policyNumber}: ${error}`);
+    }
+  } else {
+    // If no item found, insert a new item with the received status
+    const putParams: DynamoDB.DocumentClient.PutItemInput = {
+      TableName: 'PolicyTable',
+      Item: {
+        policyNumber: policyNumber,
+        timestamp: timestamp,
+        status: 'received',
+      },
+      ConditionExpression: 'attribute_not_exists(policyNumber)',
+    };
+    try {
+      await dynamoClient.put(putParams).promise();
+    } catch (error) {
+      console.log(`Error inserting new item ${policyNumber}: ${error}`);
+    }
+  }
+
+  return {
+    statusCode: 200,
+    body: JSON.stringify({ message: 'Item updated successfully' }),
+  };
+}
+
