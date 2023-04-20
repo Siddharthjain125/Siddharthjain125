@@ -1,0 +1,57 @@
+import * as cdk from 'aws-cdk-lib';
+import * as dynamodb from 'aws-cdk-lib/aws-dynamodb';
+import * as lambda from 'aws-cdk-lib/aws-lambda';
+import * as iam from 'aws-cdk-lib/aws-iam';
+import * as events from 'aws-cdk-lib/aws-events';
+import * as targets from 'aws-cdk-lib/aws-events-targets';
+
+export class PolicyUpdateStack extends cdk.Stack {
+  constructor(scope: cdk.Construct, id: string, props?: cdk.StackProps) {
+    super(scope, id, props);
+
+    // Create a DynamoDB table for storing policy updates
+    const policyTable = new dynamodb.Table(this, 'PolicyTable', {
+      partitionKey: {
+        name: 'policyNumber',
+        type: dynamodb.AttributeType.STRING,
+      },
+      sortKey: {
+        name: 'timestamp',
+        type: dynamodb.AttributeType.NUMBER,
+      },
+      billingMode: dynamodb.BillingMode.PAY_PER_REQUEST,
+    });
+
+    // Create a Lambda function for processing policy updates
+    const policyUpdateLambda = new lambda.Function(this, 'PolicyUpdateLambda', {
+      runtime: lambda.Runtime.NODEJS_14_X,
+      handler: 'index.handler',
+      code: lambda.Code.fromAsset('path/to/lambda/code'),
+      environment: {
+        TABLE_NAME: policyTable.tableName,
+      },
+    });
+
+    // Grant the Lambda function permission to access the DynamoDB table
+    policyTable.grantReadWriteData(policyUpdateLambda);
+
+    // Allow the Lambda function to write logs to CloudWatch
+    policyUpdateLambda.addToRolePolicy(
+      new iam.PolicyStatement({
+        actions: ['logs:CreateLogGroup', 'logs:CreateLogStream', 'logs:PutLogEvents'],
+        resources: ['arn:aws:logs:*:*:*'],
+      })
+    );
+
+    // Create an EventBridge rule to trigger the Lambda function on policy update events
+    const policyUpdateRule = new events.Rule(this, 'PolicyUpdateRule', {
+      eventPattern: {
+        source: ['myPolicyUpdateSource'],
+        detailType: ['PolicyUpdateEvent'],
+      },
+    });
+
+    // Connect the EventBridge rule to the Lambda function
+    policyUpdateRule.addTarget(new targets.LambdaFunction(policyUpdateLambda));
+  }
+}
